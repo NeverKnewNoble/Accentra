@@ -7,6 +7,7 @@ import RecentTransactions from '../../components/dashboard/RecentTransactions.vu
 import StatCard from '../../components/dashboard/StatCard.vue'
 import AsyncState from '../../components/portal/AsyncState.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
+import DashboardSkeleton from '../../components/skeletons/DashboardSkeleton.vue'
 import { useAuth } from '../../composables/useAuth'
 import { usePortalData } from '../../composables/usePortalData'
 import { getDashboardData } from '../../services/dashboardService'
@@ -88,9 +89,10 @@ const statCards = computed(() => {
       class="mt-7 block"
       :loading="loading"
       :error="error"
-      skeleton="cards"
       @retry="refresh"
     >
+      <template #skeleton><DashboardSkeleton /></template>
+
       <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard v-for="stat in statCards" :key="stat.label" v-bind="stat" />
       </div>

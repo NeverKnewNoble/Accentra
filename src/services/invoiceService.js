@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabaseClient'
 import { formatCurrency, formatDate, formatStatus } from '../utils/format'
-import { escapeFilterValue, pageRange, unwrap } from './helpers'
+import { escapeFilterValue, pageRange, unwrap, unwrapWithCount } from './helpers'
 
 /** Queries behind /portal/invoices. */
 
@@ -64,13 +64,13 @@ export async function listInvoices(organizationId, {
     query = query.or(`number.ilike.%${term}%`)
   }
 
-  const { data, count } = unwrap(await query, 'invoice list')
+  const { data, count } = unwrapWithCount(await query, 'invoice list')
 
-  let rows = data ?? []
+  let rows = data
 
   // Second pass: if a number search found nothing, try the client name.
   if (term && !rows.length) {
-    const byClient = unwrap(
+    const byClient = unwrapWithCount(
       await supabase
         .from('invoices')
         .select(
@@ -83,11 +83,11 @@ export async function listInvoices(organizationId, {
         .range(from, to),
       'invoice list',
     )
-    rows = byClient.data ?? []
-    return { rows: rows.map(toInvoiceRow), total: byClient.count ?? rows.length }
+    rows = byClient.data
+    return { rows: rows.map(toInvoiceRow), total: byClient.count || rows.length }
   }
 
-  return { rows: rows.map(toInvoiceRow), total: count ?? rows.length }
+  return { rows: rows.map(toInvoiceRow), total: count || rows.length }
 }
 
 function toInvoiceRow(row) {

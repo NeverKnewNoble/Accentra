@@ -74,6 +74,35 @@
   }
 }
 
+/* Loading placeholder. A soft slate base with a light sweep travelling across
+   it — the shimmer says "still arriving" where a static block just looks like
+   an empty box. Everything in components/skeletons is built from this. */
+@layer components {
+  .skeleton {
+    @apply relative overflow-hidden rounded-md bg-slate-100;
+  }
+
+  .skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgb(255 255 255 / 0.7),
+      transparent
+    );
+    animation: skeleton-sweep 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes skeleton-sweep {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;

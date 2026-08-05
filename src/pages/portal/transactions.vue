@@ -6,6 +6,8 @@ import FilterTabs from '../../components/portal/FilterTabs.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
 import SearchInput from '../../components/portal/SearchInput.vue'
 import StatusPill from '../../components/portal/StatusPill.vue'
+import AccountCardsSkeleton from '../../components/skeletons/AccountCardsSkeleton.vue'
+import TableSkeleton from '../../components/skeletons/TableSkeleton.vue'
 import { useOrganization } from '../../composables/useOrganization'
 import { usePortalData } from '../../composables/usePortalData'
 import {
@@ -104,9 +106,10 @@ function refreshAll() {
       class="mt-7 block"
       :loading="accountsLoading"
       :error="accountsError"
-      skeleton="cards"
       @retry="refreshAccounts"
     >
+      <template #skeleton><AccountCardsSkeleton /></template>
+
       <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <button
           v-for="account in accounts"
@@ -156,12 +159,11 @@ function refreshAll() {
         <SearchInput v-model="query" placeholder="Search description…" />
       </header>
 
-      <AsyncState
-        :loading="rowsLoading"
-        :error="rowsError"
-        skeleton="table"
-        @retry="refreshRows"
-      >
+      <AsyncState :loading="rowsLoading" :error="rowsError" @retry="refreshRows">
+        <template #skeleton>
+          <TableSkeleton :rows="8" :columns="5" />
+        </template>
+
         <div class="overflow-x-auto">
           <table class="w-full min-w-3xl text-left">
             <thead>

@@ -1,15 +1,21 @@
 <script setup>
+import { computed } from 'vue'
 import { RefreshCw, TriangleAlert } from 'lucide-vue-next'
+import CardSkeleton from '../skeletons/CardSkeleton.vue'
+import ChartSkeleton from '../skeletons/ChartSkeleton.vue'
+import StatCardsSkeleton from '../skeletons/StatCardsSkeleton.vue'
+import TableSkeleton from '../skeletons/TableSkeleton.vue'
 
 // Wraps any async section: skeleton while loading, a readable error with a
 // retry when it fails, and the default slot once there is data.
 //
 // Single root element on purpose — the default slot can render several nodes,
 // and a fragment root makes class/attribute fallthrough unpredictable.
-defineProps({
+const props = defineProps({
   loading: { type: Boolean, default: false },
   error: { type: [Error, Object, String], default: null },
-  // Skeleton shape while loading — pages pick whichever matches their layout.
+  // Built-in shape while loading. For anything page-shaped, pass a component
+  // through the `skeleton` slot instead — see components/skeletons.
   skeleton: {
     type: String,
     default: 'card',
@@ -17,6 +23,16 @@ defineProps({
   },
 })
 const emit = defineEmits(['retry'])
+
+const SHAPES = {
+  card: CardSkeleton,
+  cards: StatCardsSkeleton,
+  table: TableSkeleton,
+  chart: ChartSkeleton,
+  none: null,
+}
+
+const shape = computed(() => SHAPES[props.skeleton] ?? null)
 </script>
 
 <template>
@@ -44,40 +60,10 @@ const emit = defineEmits(['retry'])
 
     <div v-else-if="loading" aria-busy="true" aria-live="polite">
       <span class="sr-only">Loading…</span>
-
-      <div v-if="skeleton === 'cards'" class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-        <div
-          v-for="n in 4"
-          :key="n"
-          class="h-36 animate-pulse rounded-2xl border border-slate-200 bg-white"
-        ></div>
-      </div>
-
-      <div
-        v-else-if="skeleton === 'table'"
-        class="overflow-hidden rounded-2xl border border-slate-200 bg-white"
-      >
-        <div class="h-16 animate-pulse border-b border-slate-100 bg-slate-50"></div>
-        <div
-          v-for="n in 5"
-          :key="n"
-          class="flex items-center gap-4 border-b border-slate-50 px-6 py-4 last:border-0"
-        >
-          <div class="size-9 animate-pulse rounded-lg bg-slate-100"></div>
-          <div class="h-3 flex-1 animate-pulse rounded bg-slate-100"></div>
-          <div class="h-3 w-20 animate-pulse rounded bg-slate-100"></div>
-        </div>
-      </div>
-
-      <div
-        v-else-if="skeleton === 'chart'"
-        class="h-80 animate-pulse rounded-2xl border border-slate-200 bg-white"
-      ></div>
-
-      <div
-        v-else-if="skeleton === 'card'"
-        class="h-64 animate-pulse rounded-2xl border border-slate-200 bg-white"
-      ></div>
+      <!-- Pages override the shape here when the built-ins are too generic. -->
+      <slot name="skeleton">
+        <component :is="shape" v-if="shape" />
+      </slot>
     </div>
 
     <slot v-else />

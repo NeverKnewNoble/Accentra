@@ -14,6 +14,7 @@ import StatCard from '../../components/dashboard/StatCard.vue'
 import AsyncState from '../../components/portal/AsyncState.vue'
 import FilterTabs from '../../components/portal/FilterTabs.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
+import ReportsSkeleton from '../../components/skeletons/ReportsSkeleton.vue'
 import { usePortalData } from '../../composables/usePortalData'
 import { getReportPageData } from '../../services/reportService'
 import { reportLibrary, reportPeriods } from '../../utils/samplesData'
@@ -90,9 +91,10 @@ const STREAM_TONES = ['bg-brand-700', 'bg-brand-500', 'bg-brand-300', 'bg-brand-
       class="mt-7 block"
       :loading="loading"
       :error="error"
-      skeleton="cards"
       @retry="refresh"
     >
+      <template #skeleton><ReportsSkeleton /></template>
+
       <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard v-for="kpi in kpiCards" :key="kpi.label" v-bind="kpi" />
       </div>

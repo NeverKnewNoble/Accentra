@@ -318,8 +318,22 @@ create table public.expenses (
   notes           text,
 
   -- Who spent it, and who signed it off.
-  submitted_by    uuid not null references auth.users(id) on delete restrict,
-  approved_by     uuid references auth.users(id) on delete set null,
+  --
+  -- These point at `profiles`, not `auth.users`, so PostgREST can embed the
+  -- name on an expense row (`profiles!expenses_submitted_by_fkey(...)` in
+  -- expenseService). Relationships are only discoverable inside the exposed
+  -- schema, and `auth` is not exposed — an FK to `auth.users` gives
+  -- "Could not find a relationship between 'expenses' and 'profiles'".
+  --
+  -- Integrity is unchanged: `profiles.id` is itself an FK to `auth.users(id)`
+  -- with `on delete cascade`, and the signup trigger (§6.4) writes a profile
+  -- row for every user.
+  submitted_by    uuid not null
+                    constraint expenses_submitted_by_fkey
+                    references public.profiles(id) on delete restrict,
+  approved_by     uuid
+                    constraint expenses_approved_by_fkey
+                    references public.profiles(id) on delete set null,
   approved_at     timestamptz,
 
   created_at      timestamptz not null default now(),
@@ -330,6 +344,28 @@ create index expenses_org_date_idx on public.expenses(organization_id, spent_on 
 create index expenses_status_idx   on public.expenses(organization_id, status);
 create index expenses_category_idx on public.expenses(category_id);
 create index expenses_vendor_idx   on public.expenses using gin (vendor gin_trgm_ops);
+```
+
+**Already have a database built from an earlier copy of this file?** Those two
+columns pointed at `auth.users`, so the expense page fails with *"Could not find
+a relationship between 'expenses' and 'profiles' in the schema cache"*. Repoint
+them — no data moves, every `submitted_by` already has a matching `profiles`
+row:
+
+```sql
+alter table public.expenses drop constraint if exists expenses_submitted_by_fkey;
+alter table public.expenses drop constraint if exists expenses_approved_by_fkey;
+
+alter table public.expenses
+  add constraint expenses_submitted_by_fkey
+  foreign key (submitted_by) references public.profiles(id) on delete restrict;
+
+alter table public.expenses
+  add constraint expenses_approved_by_fkey
+  foreign key (approved_by) references public.profiles(id) on delete set null;
+
+-- PostgREST caches relationships; tell it to look again.
+notify pgrst, 'reload schema';
 ```
 
 ### 3.10 `transactions`

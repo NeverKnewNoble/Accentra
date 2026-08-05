@@ -13,6 +13,7 @@ import StatCard from '../../components/dashboard/StatCard.vue'
 import AsyncState from '../../components/portal/AsyncState.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
 import StatusPill from '../../components/portal/StatusPill.vue'
+import PayrollSkeleton from '../../components/skeletons/PayrollSkeleton.vue'
 import { useAuth } from '../../composables/useAuth'
 import { usePortalData } from '../../composables/usePortalData'
 import { approvePayrollRun, getPayrollPageData } from '../../services/payrollService'
@@ -98,9 +99,10 @@ async function onApprove() {
       class="mt-7 block"
       :loading="loading"
       :error="error"
-      skeleton="cards"
       @retry="refresh"
     >
+      <template #skeleton><PayrollSkeleton /></template>
+
       <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard v-for="stat in statCards" :key="stat.label" v-bind="stat" />
       </div>

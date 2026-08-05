@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import AsyncState from '../../components/portal/AsyncState.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
+import SettingsSkeleton from '../../components/skeletons/SettingsSkeleton.vue'
 import FormField from '../../components/ui/FormField.vue'
 import { useAuth } from '../../composables/useAuth'
 import { useOrganization } from '../../composables/useOrganization'
@@ -99,9 +100,10 @@ async function toggleChannel(key, channel) {
       class="mt-7 block"
       :loading="loading"
       :error="error"
-      skeleton="card"
       @retry="refresh"
     >
+      <template #skeleton><SettingsSkeleton /></template>
+
       <div class="grid gap-6 lg:grid-cols-[220px_1fr]">
         <!-- Section nav -->
         <nav class="lg:sticky lg:top-24 lg:self-start">

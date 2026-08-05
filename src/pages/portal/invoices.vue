@@ -15,6 +15,7 @@ import FilterTabs from '../../components/portal/FilterTabs.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
 import SearchInput from '../../components/portal/SearchInput.vue'
 import StatusPill from '../../components/portal/StatusPill.vue'
+import TableSkeleton from '../../components/skeletons/TableSkeleton.vue'
 import { usePortalData } from '../../composables/usePortalData'
 import { getInvoiceStats, listInvoices } from '../../services/invoiceService'
 import { initials } from '../../utils/format'
@@ -132,12 +133,11 @@ function resetPage() {
         <SearchInput v-model="query" placeholder="Search client or number…" @update:model-value="resetPage" />
       </header>
 
-      <AsyncState
-        :loading="tableLoading"
-        :error="tableError"
-        skeleton="table"
-        @retry="refreshTable"
-      >
+      <AsyncState :loading="tableLoading" :error="tableError" @retry="refreshTable">
+        <template #skeleton>
+          <TableSkeleton :rows="8" :columns="6" actions />
+        </template>
+
         <div class="overflow-x-auto">
           <table class="w-full min-w-3xl text-left">
             <thead>

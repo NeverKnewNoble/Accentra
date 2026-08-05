@@ -7,6 +7,8 @@ import FilterTabs from '../../components/portal/FilterTabs.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
 import SearchInput from '../../components/portal/SearchInput.vue'
 import StatusPill from '../../components/portal/StatusPill.vue'
+import MeterListSkeleton from '../../components/skeletons/MeterListSkeleton.vue'
+import TableSkeleton from '../../components/skeletons/TableSkeleton.vue'
 import { usePortalData } from '../../composables/usePortalData'
 import {
   getExpenseBreakdown,
@@ -114,9 +116,10 @@ const statCards = computed(() => {
       <AsyncState
         :loading="breakdownLoading"
         :error="breakdownError"
-        skeleton="card"
         @retry="refreshBreakdown"
       >
+        <template #skeleton><MeterListSkeleton /></template>
+
         <section class="h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <header>
             <h2 class="text-base font-semibold text-ink">Spend by category</h2>
@@ -152,12 +155,11 @@ const statCards = computed(() => {
           <SearchInput v-model="query" placeholder="Search vendor…" />
         </header>
 
-        <AsyncState
-          :loading="rowsLoading"
-          :error="rowsError"
-          skeleton="table"
-          @retry="refreshRows"
-        >
+        <AsyncState :loading="rowsLoading" :error="rowsError" @retry="refreshRows">
+          <template #skeleton>
+            <TableSkeleton :rows="8" :columns="5" :avatar="false" />
+          </template>
+
           <div class="overflow-x-auto">
             <table class="w-full min-w-2xl text-left">
               <thead>

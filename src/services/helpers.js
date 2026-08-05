@@ -7,13 +7,23 @@
  */
 
 /**
- * Unwrap a supabase-js response, throwing a readable error on failure.
- * PostgREST error codes worth recognising are translated to plain English —
- * the raw ones ("PGRST116", "42P01") tell a user nothing.
+ * Unwrap a supabase-js response to its rows, throwing a readable error on
+ * failure. PostgREST error codes worth recognising are translated to plain
+ * English — the raw ones ("PGRST116", "42P01") tell a user nothing.
+ *
+ * Always returns `data`. supabase-js puts a `count` key on every response
+ * (null unless the query asked for one), so it cannot be used to guess whether
+ * the caller wanted the pair — use `unwrapWithCount` when you do.
  */
-export function unwrap({ data, error, count }, context = 'request') {
+export function unwrap({ data, error }, context = 'request') {
   if (error) throw toFriendlyError(error, context)
-  return count === undefined ? data : { data, count }
+  return data
+}
+
+/** As `unwrap`, for queries made with `{ count: ... }`. Rows never null. */
+export function unwrapWithCount(response, context = 'request') {
+  const data = unwrap(response, context)
+  return { data: data ?? [], count: response.count ?? 0 }
 }
 
 export function toFriendlyError(error, context) {
