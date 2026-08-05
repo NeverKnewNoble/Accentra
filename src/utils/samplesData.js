@@ -45,13 +45,18 @@ export const reportPeriods = ['This month', 'This quarter', 'Year to date']
 /* ---------------------------------------------------------------- reports */
 
 // A catalogue of what can be generated, not data — nothing to query here.
+/**
+ * The report catalogue. `kind` is what `generateReport` in reportService
+ * dispatches on — the ones it cannot build from the current schema say so in
+ * the dialog rather than producing a plausible-looking wrong answer.
+ */
 export const reportLibrary = [
-  { title: 'Balance sheet', body: 'Assets, liabilities and equity as at any date.', icon: Scale },
-  { title: 'Cash flow statement', body: 'Operating, investing and financing movements.', icon: ArrowLeftRight },
-  { title: 'Trial balance', body: 'Every account with debit and credit totals.', icon: ChartColumn },
-  { title: 'Aged receivables', body: 'Who owes you, bucketed by how late they are.', icon: CalendarClock },
-  { title: 'VAT return', body: 'Filing-ready figures for the current period.', icon: Landmark },
-  { title: 'Payroll summary', body: 'Gross, deductions and employer costs per run.', icon: Users },
+  { kind: 'balance-sheet', title: 'Balance sheet', body: 'Assets, liabilities and equity as at any date.', icon: Scale },
+  { kind: 'cash-flow', title: 'Cash flow statement', body: 'Money in and out, month by month.', icon: ArrowLeftRight },
+  { kind: 'trial-balance', title: 'Trial balance', body: 'Every account with debit and credit totals.', icon: ChartColumn },
+  { kind: 'aged-receivables', title: 'Aged receivables', body: 'Who owes you, bucketed by how late they are.', icon: CalendarClock },
+  { kind: 'vat-return', title: 'VAT return', body: 'Filing-ready figures for the current period.', icon: Landmark },
+  { kind: 'payroll-summary', title: 'Payroll summary', body: 'Gross, deductions and employer costs per run.', icon: Users },
 ]
 
 /* --------------------------------------------------------------- settings */

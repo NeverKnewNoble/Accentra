@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabaseClient'
 import { formatCurrency, formatDate, formatStatus } from '../utils/format'
 import { escapeFilterValue, unwrap } from './helpers'
+import { createTransaction, listLinkedExpenseIds } from './transactionService'
 
 /** Queries behind /portal/expenses. */
 
@@ -96,6 +97,15 @@ const METHOD_LABELS = {
   reimbursement: 'Reimbursement',
 }
 
+/** Payment methods, as the `payment_method` enum defines them. */
+export const PAYMENT_METHODS = [
+  { value: 'card', label: 'Card' },
+  { value: 'bank_transfer', label: 'Bank transfer' },
+  { value: 'mobile_money', label: 'Mobile money' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'reimbursement', label: 'Reimbursement' },
+]
+
 export async function listExpenseCategories(organizationId) {
   return (
     unwrap(
@@ -107,6 +117,23 @@ export async function listExpenseCategories(organizationId) {
         .order('name'),
       'category list',
     ) ?? []
+  )
+}
+
+/**
+ * Add a category from inside the expense form, so filing a claim never has to
+ * be abandoned to go and create one. The table has a
+ * `unique (organization_id, name)` constraint, so a duplicate is rejected by
+ * the database rather than being silently merged.
+ */
+export async function createExpenseCategory(organizationId, name) {
+  return unwrap(
+    await supabase
+      .from('expense_categories')
+      .insert({ organization_id: organizationId, name: name.trim() })
+      .select('id, name')
+      .single(),
+    'category creation',
   )
 }
 
@@ -126,6 +153,7 @@ export async function createExpense(organizationId, userId, expense) {
         vendor: expense.vendor,
         spent_on: expense.spentOn,
         amount: expense.amount,
+        currency: expense.currency ?? 'GHS',
         method: expense.method ?? 'card',
         method_detail: expense.methodDetail ?? null,
         reimbursable: expense.reimbursable ?? false,
@@ -182,6 +210,150 @@ export async function markExpenseReimbursed(expenseId) {
       .single(),
     'reimbursement',
   )
+}
+
+/**
+ * File a claim *and* record the money leaving the account, linked.
+ *
+ * An expense is a cost; a transaction is a cash movement. They are separate
+ * tables because they genuinely come apart — a card settles days later, a
+ * reimbursable claim has no bank line at all until it is paid back, and one
+ * payment can settle several claims. But when they *are* the same event,
+ * `transactions.expense_id` says so, and nothing downstream has to guess.
+ *
+ * `accountId` is required here: `transactions.account_id` is not nullable, and
+ * money cannot leave an account nobody named.
+ *
+ * If the transaction fails the claim is removed again. A claim left behind
+ * without its bank line would silently overstate the account balance, and the
+ * caller was asking for both or neither.
+ */
+export async function createExpenseWithPayment(organizationId, userId, expense) {
+  const created = await createExpense(organizationId, userId, expense)
+
+  try {
+    await createTransaction(organizationId, {
+      accountId: expense.accountId,
+      categoryId: expense.categoryId ?? null,
+      expenseId: created.id,
+      occurredOn: expense.spentOn,
+      description: expense.vendor,
+      // Money out is negative — the sign is what makes `sum(amount)` mean
+      // anything.
+      amount: -Math.abs(Number(expense.amount)),
+      currency: expense.currency ?? 'GHS',
+      status: 'cleared',
+    })
+  } catch (caught) {
+    const { error } = await supabase.from('expenses').delete().eq('id', created.id)
+    if (error) {
+      throw new Error(
+        `The expense was saved, but the matching bank transaction could not be recorded (${caught.message}). Add it from the transactions page so the account balance stays right.`,
+      )
+    }
+    throw caught
+  }
+
+  return created
+}
+
+/**
+ * Claims that no transaction points at yet — the match candidates in the
+ * reconciliation dialog.
+ *
+ * Reimbursable claims are excluded: the bank line for one of those is the
+ * repayment to the person, not the original purchase, and matching them here
+ * would attach the wrong cash movement to the cost.
+ */
+export async function listUnlinkedExpenses(organizationId, { since = null } = {}) {
+  const linked = await listLinkedExpenseIds(organizationId)
+
+  const cutoff =
+    since ??
+    (() => {
+      const date = new Date()
+      date.setDate(date.getDate() - 90)
+      return date.toISOString().slice(0, 10)
+    })()
+
+  const rows =
+    unwrap(
+      await supabase
+        .from('expenses')
+        .select('id, vendor, spent_on, amount, category_id, status')
+        .eq('organization_id', organizationId)
+        .eq('reimbursable', false)
+        .gte('spent_on', cutoff)
+        .order('spent_on', { ascending: false }),
+      'expense list',
+    ) ?? []
+
+  return rows
+    .filter((row) => !linked.has(row.id))
+    .map((row) => ({
+      id: row.id,
+      vendor: row.vendor,
+      date: formatDate(row.spent_on),
+      amount: Number(row.amount),
+      amountLabel: formatCurrency(row.amount, { decimals: true }),
+      categoryId: row.category_id ?? '',
+      status: formatStatus(row.status),
+    }))
+}
+
+export async function updateExpense(expenseId, expense) {
+  return unwrap(
+    await supabase
+      .from('expenses')
+      .update({
+        category_id: expense.categoryId ?? null,
+        account_id: expense.accountId ?? null,
+        vendor: expense.vendor,
+        spent_on: expense.spentOn,
+        amount: expense.amount,
+        method: expense.method,
+        method_detail: expense.methodDetail ?? null,
+        reimbursable: expense.reimbursable ?? false,
+        notes: expense.notes ?? null,
+      })
+      .eq('id', expenseId)
+      .select()
+      .single(),
+    'expense update',
+  )
+}
+
+export async function deleteExpense(expenseId) {
+  return unwrap(
+    await supabase.from('expenses').delete().eq('id', expenseId),
+    'expense delete',
+  )
+}
+
+/**
+ * Claims with no receipt attached yet — the picker in the upload dialog. Newest
+ * first, since a receipt is almost always for something just filed.
+ */
+export async function listExpensesMissingReceipts(organizationId, limit = 40) {
+  const rows =
+    unwrap(
+      await supabase
+        .from('expenses')
+        .select('id, vendor, spent_on, amount, status')
+        .eq('organization_id', organizationId)
+        .is('receipt_url', null)
+        .order('spent_on', { ascending: false })
+        .limit(limit),
+      'expense list',
+    ) ?? []
+
+  return rows.map((row) => ({
+    id: row.id,
+    vendor: row.vendor,
+    date: formatDate(row.spent_on),
+    amount: formatCurrency(row.amount, { decimals: true }),
+    status: formatStatus(row.status),
+  }))
 }
 
 /**

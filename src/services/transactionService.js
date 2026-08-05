@@ -94,6 +94,99 @@ export async function countUnreconciled(organizationId) {
   return count ?? 0
 }
 
+/** The reconciliation queue, with enough detail to categorise and match each row. */
+export async function listUnreconciled(organizationId, limit = 100) {
+  const rows =
+    unwrap(
+      await supabase
+        .from('transactions')
+        .select(
+          `
+          id, occurred_on, description, amount, status, category_id, expense_id,
+          accounts (id, name)
+        `,
+        )
+        .eq('organization_id', organizationId)
+        .eq('reconciled', false)
+        .order('occurred_on', { ascending: false })
+        .limit(limit),
+      'unreconciled transactions',
+    ) ?? []
+
+  return rows.map((row) => ({
+    id: row.id,
+    date: formatDate(row.occurred_on),
+    description: row.description,
+    account: row.accounts?.name ?? '—',
+    amount: formatCurrency(row.amount, { decimals: true }),
+    // The raw figure, so an expense of the same size can be spotted.
+    rawAmount: Number(row.amount),
+    positive: Number(row.amount) > 0,
+    status: formatStatus(row.status),
+    categoryId: row.category_id ?? '',
+    expenseId: row.expense_id ?? '',
+  }))
+}
+
+/** Every transaction already pointing at an expense — the ones not to offer again. */
+export async function listLinkedExpenseIds(organizationId) {
+  const rows =
+    unwrap(
+      await supabase
+        .from('transactions')
+        .select('expense_id')
+        .eq('organization_id', organizationId)
+        .not('expense_id', 'is', null),
+      'expense links',
+    ) ?? []
+
+  return new Set(rows.map((row) => row.expense_id))
+}
+
+/**
+ * Clear a batch in one round trip.
+ *
+ * Per-row edits — the category and the matched expense — go one at a time
+ * because each row gets a different value; the reconcile flag is a single `in`
+ * update. All of it runs through RLS unchanged, so a viewer's batch simply
+ * updates nothing.
+ */
+export async function bulkReconcile(
+  transactionIds,
+  { categoryByTransaction = {}, expenseByTransaction = {} } = {},
+) {
+  if (!transactionIds.length) return 0
+
+  for (const id of transactionIds) {
+    const patch = {}
+    if (categoryByTransaction[id]) patch.category_id = categoryByTransaction[id]
+    // An empty string means "no match" — but so does clearing one that was set,
+    // so both map to null rather than being skipped.
+    if (id in expenseByTransaction) patch.expense_id = expenseByTransaction[id] || null
+
+    if (Object.keys(patch).length) {
+      unwrap(
+        await supabase.from('transactions').update(patch).eq('id', id),
+        'transaction update',
+      )
+    }
+  }
+
+  unwrap(
+    await supabase
+      .from('transactions')
+      .update({
+        reconciled: true,
+        reconciled_at: new Date().toISOString(),
+        status: 'cleared',
+      })
+      .in('id', transactionIds),
+    'reconciliation',
+  )
+
+  return transactionIds.length
+}
+
 export async function reconcileTransaction(transactionId) {
   return unwrap(
     await supabase
@@ -118,6 +211,18 @@ export async function categoriseTransaction(transactionId, categoryId) {
   )
 }
 
+export const TRANSACTION_STATUSES = [
+  { value: 'cleared', label: 'Cleared' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'needs_review', label: 'Needs review' },
+  { value: 'failed', label: 'Failed' },
+]
+
+/**
+ * `amount` is signed: positive is money in, negative is money out. The form
+ * collects a magnitude and a direction and applies the sign before calling
+ * this — a zero is rejected by the `transactions_amount_nonzero` constraint.
+ */
 export async function createTransaction(organizationId, transaction) {
   return unwrap(
     await supabase
@@ -126,11 +231,17 @@ export async function createTransaction(organizationId, transaction) {
         organization_id: organizationId,
         account_id: transaction.accountId,
         category_id: transaction.categoryId ?? null,
+        // The seam between the cost and the cash. Set on either side and the
+        // two records stop being independent guesses at the same event.
+        expense_id: transaction.expenseId ?? null,
+        invoice_id: transaction.invoiceId ?? null,
         occurred_on: transaction.occurredOn,
         description: transaction.description,
         amount: transaction.amount,
+        currency: transaction.currency ?? 'GHS',
+        fx_rate: transaction.fxRate ?? 1,
         status: transaction.status ?? 'cleared',
-        external_ref: transaction.externalRef ?? null,
+        external_ref: transaction.externalRef || null,
       })
       .select()
       .single(),

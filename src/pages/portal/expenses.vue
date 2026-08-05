@@ -2,6 +2,8 @@
 import { computed, ref } from 'vue'
 import { CalendarClock, ChartColumn, Plus, Receipt, Upload, Users } from 'lucide-vue-next'
 import StatCard from '../../components/dashboard/StatCard.vue'
+import RecordExpenseModal from '../../components/modals/RecordExpenseModal.vue'
+import UploadReceiptModal from '../../components/modals/UploadReceiptModal.vue'
 import AsyncState from '../../components/portal/AsyncState.vue'
 import FilterTabs from '../../components/portal/FilterTabs.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
@@ -78,14 +80,32 @@ const statCards = computed(() => {
     },
   ]
 })
+
+const showRecordExpense = ref(false)
+const showUploadReceipt = ref(false)
+
+/**
+ * A new claim moves the pending figure and the transaction count, and — once
+ * approved — the category meters, so all three refetch rather than only the
+ * table the row landed in.
+ */
+function refreshAll() {
+  refreshStats()
+  refreshBreakdown()
+  refreshRows()
+}
 </script>
 
 <template>
   <div>
-    <PageHeader title="Expenses" subtitle="Every cost, categorised and ready for the close.">
+    <PageHeader
+      title="Expenses"
+      subtitle="What things cost, whenever the money actually moves. Transactions shows the bank side."
+    >
       <button
         type="button"
         class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink shadow-sm transition hover:bg-slate-50"
+        @click="showUploadReceipt = true"
       >
         <Upload class="size-4 text-slate-400" />
         Upload receipts
@@ -93,11 +113,15 @@ const statCards = computed(() => {
       <button
         type="button"
         class="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-600/20 transition hover:bg-brand-700 active:scale-[0.98]"
+        @click="showRecordExpense = true"
       >
         <Plus class="size-4" />
         Record expense
       </button>
     </PageHeader>
+
+    <RecordExpenseModal v-model:open="showRecordExpense" @created="refreshAll" />
+    <UploadReceiptModal v-model:open="showUploadReceipt" @uploaded="refreshRows" />
 
     <AsyncState
       class="mt-7 block"

@@ -108,6 +108,29 @@ export async function listEmployees(organizationId, { includeInactive = false } 
   }))
 }
 
+/**
+ * Unformatted employee rows, for forms.
+ *
+ * `listEmployees` above returns display strings ("₵5,400 / mo"), which a number
+ * input cannot bind to — the payroll dialog needs `pay_rate` as a number.
+ */
+export async function listEmployeesRaw(organizationId, { activeOnly = true } = {}) {
+  let query = supabase
+    .from('employees')
+    .select(
+      `
+      id, full_name, role_title, email, employment_type, status, pay_rate,
+      currency, started_on, ended_on, bank_account, ssnit_number, tin
+    `,
+    )
+    .eq('organization_id', organizationId)
+    .order('full_name')
+
+  if (activeOnly) query = query.eq('status', 'active')
+
+  return unwrap(await query, 'employee list') ?? []
+}
+
 export async function listPayrollHistory(organizationId, limit = 3) {
   const rows =
     unwrap(
@@ -179,6 +202,94 @@ export async function createPayrollRun(organizationId, { periodStart, periodEnd,
   )
 }
 
+/**
+ * Insert the lines for a run.
+ *
+ * `net` is never sent — it is a generated column (§3.13). The
+ * `payroll_items_recalc` trigger (§6.3) then rolls gross, deductions and
+ * headcount back up onto the run, so those are not sent either.
+ */
+export async function createPayrollItems(runId, items) {
+  if (!items.length) return []
+
+  return unwrap(
+    await supabase
+      .from('payroll_items')
+      .insert(
+        items.map((item) => ({
+          payroll_run_id: runId,
+          employee_id: item.employeeId,
+          gross: item.gross,
+          paye_tax: item.payeTax,
+          ssnit_employee: item.ssnitEmployee,
+          ssnit_employer: item.ssnitEmployer,
+          other_deductions: item.otherDeductions ?? 0,
+        })),
+      )
+      .select(),
+    'payroll item creation',
+  )
+}
+
+/**
+ * Create a run and its lines together.
+ *
+ * If the lines fail to insert, the empty run is removed rather than left behind
+ * — a zero-employee draft would sit at the top of the payroll page forever, and
+ * the `unique (organization_id, period_start, period_end)` constraint would
+ * then block a retry for the same period.
+ */
+export async function createPayrollRunWithItems(organizationId, run, items) {
+  const created = await createPayrollRun(organizationId, run)
+
+  try {
+    await createPayrollItems(created.id, items)
+  } catch (caught) {
+    await supabase.from('payroll_runs').delete().eq('id', created.id)
+    throw caught
+  }
+
+  return created
+}
+
+export async function updateEmployee(employeeId, employee) {
+  return unwrap(
+    await supabase
+      .from('employees')
+      .update({
+        full_name: employee.fullName,
+        role_title: employee.roleTitle || null,
+        email: employee.email || null,
+        employment_type: employee.employmentType,
+        status: employee.status,
+        pay_rate: employee.payRate,
+        currency: employee.currency ?? 'GHS',
+        started_on: employee.startedOn,
+        ended_on: employee.endedOn || null,
+        bank_account: employee.bankAccount || null,
+        ssnit_number: employee.ssnitNumber || null,
+        tin: employee.tin || null,
+      })
+      .eq('id', employeeId)
+      .select()
+      .single(),
+    'employee update',
+  )
+}
+
+/** Close out a run once the bank has paid it. */
+export async function markPayrollPaid(runId) {
+  return unwrap(
+    await supabase
+      .from('payroll_runs')
+      .update({ status: 'paid' })
+      .eq('id', runId)
+      .select()
+      .single(),
+    'payroll completion',
+  )
+}
+
 /** Approve and submit. Only owners and admins pass the RLS write policy. */
 export async function approvePayrollRun(runId, approverId) {
   return unwrap(
@@ -197,6 +308,17 @@ export async function approvePayrollRun(runId, approverId) {
   )
 }
 
+export const EMPLOYMENT_TYPES = [
+  { value: 'salaried', label: 'Salaried' },
+  { value: 'contract', label: 'Contract' },
+]
+
+export const EMPLOYEE_STATUSES = [
+  { value: 'active', label: 'Active' },
+  { value: 'onboarding', label: 'Onboarding' },
+  { value: 'left', label: 'Left' },
+]
+
 export async function createEmployee(organizationId, employee) {
   return unwrap(
     await supabase
@@ -204,14 +326,16 @@ export async function createEmployee(organizationId, employee) {
       .insert({
         organization_id: organizationId,
         full_name: employee.fullName,
-        role_title: employee.roleTitle,
-        email: employee.email,
+        role_title: employee.roleTitle || null,
+        email: employee.email || null,
         employment_type: employee.employmentType ?? 'salaried',
+        status: employee.status ?? 'active',
         pay_rate: employee.payRate,
+        currency: employee.currency ?? 'GHS',
         started_on: employee.startedOn,
-        ssnit_number: employee.ssnitNumber ?? null,
-        tin: employee.tin ?? null,
-        bank_account: employee.bankAccount ?? null,
+        ssnit_number: employee.ssnitNumber || null,
+        tin: employee.tin || null,
+        bank_account: employee.bankAccount || null,
       })
       .select()
       .single(),

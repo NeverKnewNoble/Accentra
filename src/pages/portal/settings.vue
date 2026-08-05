@@ -1,5 +1,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import ConfirmDialog from '../../components/modals/ConfirmDialog.vue'
+import UploadAvatarModal from '../../components/modals/UploadAvatarModal.vue'
 import AsyncState from '../../components/portal/AsyncState.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
 import SettingsSkeleton from '../../components/skeletons/SettingsSkeleton.vue'
@@ -9,6 +11,7 @@ import { useOrganization } from '../../composables/useOrganization'
 import { usePortalData } from '../../composables/usePortalData'
 import {
   getSettingsPageData,
+  removeAvatar,
   updateCompanySettings,
   updateNotificationPreference,
   updateProfile,
@@ -45,6 +48,15 @@ watch(data, (loaded) => {
 const saving = ref(false)
 const saveError = ref(null)
 const savedMessage = ref('')
+
+const showUploadAvatar = ref(false)
+const showRemoveAvatar = ref(false)
+
+function onAvatarChanged(message) {
+  saveError.value = null
+  savedMessage.value = message
+  refresh()
+}
 
 async function saveProfile() {
   saving.value = true
@@ -156,7 +168,14 @@ async function toggleChannel(key, channel) {
               </p>
 
               <div class="mt-6 flex flex-wrap items-center gap-5 border-b border-slate-100 pb-6">
+                <img
+                  v-if="data?.profile?.avatarUrl"
+                  :src="data.profile.avatarUrl"
+                  alt="Your profile photo"
+                  class="size-16 rounded-2xl object-cover"
+                />
                 <span
+                  v-else
                   class="grid size-16 place-items-center rounded-2xl bg-linear-to-br from-brand-500 to-brand-700 text-lg font-semibold text-white"
                 >
                   {{ initials(profile.fullName || email) }}
@@ -165,17 +184,35 @@ async function toggleChannel(key, channel) {
                   <button
                     type="button"
                     class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-slate-50"
+                    @click="showUploadAvatar = true"
                   >
                     Upload photo
                   </button>
                   <button
                     type="button"
-                    class="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-100"
+                    :disabled="!data?.profile?.avatarUrl"
+                    class="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    @click="showRemoveAvatar = true"
                   >
                     Remove
                   </button>
                 </div>
               </div>
+
+              <UploadAvatarModal
+                v-model:open="showUploadAvatar"
+                @uploaded="onAvatarChanged('Photo updated')"
+              />
+
+              <ConfirmDialog
+                v-model:open="showRemoveAvatar"
+                title="Remove your photo?"
+                message="Your initials will be shown instead."
+                confirm-label="Remove photo"
+                tone="danger"
+                :action="() => removeAvatar(user.id)"
+                @confirmed="onAvatarChanged('Photo removed')"
+              />
 
               <form class="mt-6 grid gap-5 sm:grid-cols-2" @submit.prevent="saveProfile">
                 <FormField v-model="profile.fullName" label="Full name" autocomplete="name" />

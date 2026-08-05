@@ -1,6 +1,18 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ArrowDownRight, ArrowUpRight, CircleCheck, Download, RefreshCw } from 'lucide-vue-next'
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  CircleCheck,
+  Download,
+  Landmark,
+  Plus,
+  RefreshCw,
+} from 'lucide-vue-next'
+import AddAccountModal from '../../components/modals/AddAccountModal.vue'
+import AddTransactionModal from '../../components/modals/AddTransactionModal.vue'
+import ExportModal from '../../components/modals/ExportModal.vue'
+import ReconcileModal from '../../components/modals/ReconcileModal.vue'
 import AsyncState from '../../components/portal/AsyncState.vue'
 import FilterTabs from '../../components/portal/FilterTabs.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
@@ -79,6 +91,20 @@ function refreshAll() {
   refreshRows()
   refreshUnreconciled()
 }
+
+const showNewTransaction = ref(false)
+const showNewAccount = ref(false)
+const showReconcile = ref(false)
+const showExport = ref(false)
+
+const EXPORT_COLUMNS = [
+  { key: 'date', label: 'Date' },
+  { key: 'description', label: 'Description' },
+  { key: 'account', label: 'Account' },
+  { key: 'category', label: 'Category' },
+  { key: 'status', label: 'Status' },
+  { key: 'amount', label: 'Amount' },
+]
 </script>
 
 <template>
@@ -87,9 +113,26 @@ function refreshAll() {
       <button
         type="button"
         class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink shadow-sm transition hover:bg-slate-50"
+        @click="showExport = true"
       >
         <Download class="size-4 text-slate-400" />
         Export CSV
+      </button>
+      <button
+        type="button"
+        class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink shadow-sm transition hover:bg-slate-50"
+        @click="showNewAccount = true"
+      >
+        <Landmark class="size-4 text-slate-400" />
+        Add account
+      </button>
+      <button
+        type="button"
+        class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink shadow-sm transition hover:bg-slate-50"
+        @click="showNewTransaction = true"
+      >
+        <Plus class="size-4 text-slate-400" />
+        New transaction
       </button>
       <button
         type="button"
@@ -100,6 +143,19 @@ function refreshAll() {
         Sync accounts
       </button>
     </PageHeader>
+
+    <AddTransactionModal v-model:open="showNewTransaction" @created="refreshAll" />
+    <AddAccountModal v-model:open="showNewAccount" @created="refreshAccounts" />
+    <ReconcileModal v-model:open="showReconcile" @reconciled="refreshAll" />
+
+    <ExportModal
+      v-model:open="showExport"
+      title="Export transactions"
+      :subtitle="`${activeAccountName}, ${activeFilter.toLowerCase()}.`"
+      filename="transactions"
+      :columns="EXPORT_COLUMNS"
+      :rows="rows ?? []"
+    />
 
     <!-- Account switcher doubles as a balance summary -->
     <AsyncState
@@ -148,6 +204,7 @@ function refreshAll() {
       <button
         type="button"
         class="ml-auto rounded-lg bg-brand-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-brand-700"
+        @click="showReconcile = true"
       >
         Start reconciling
       </button>

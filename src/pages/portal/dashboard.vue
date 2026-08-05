@@ -1,10 +1,11 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { CreditCard, Download, FileText, Landmark, Wallet } from 'lucide-vue-next'
 import CashFlowChart from '../../components/dashboard/CashFlowChart.vue'
 import InvoiceSummary from '../../components/dashboard/InvoiceSummary.vue'
 import RecentTransactions from '../../components/dashboard/RecentTransactions.vue'
 import StatCard from '../../components/dashboard/StatCard.vue'
+import ExportModal from '../../components/modals/ExportModal.vue'
 import AsyncState from '../../components/portal/AsyncState.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
 import DashboardSkeleton from '../../components/skeletons/DashboardSkeleton.vue'
@@ -28,8 +29,16 @@ const today = new Date().toLocaleDateString(undefined, {
   month: 'long',
 })
 
-// Icons live here rather than in the service — they are presentation, and the
-// service layer should stay free of Vue components.
+/**
+ * Icons live here rather than in the service — they are presentation, and the
+ * service layer should stay free of Vue components.
+ *
+ * Every figure on this page is **cash**: `dashboard_stats` sums `transactions`,
+ * so these are movements in and out of your accounts. Reports works on an
+ * accrual basis instead — revenue when invoiced, costs when incurred — so the
+ * two pages will legitimately differ. The captions say which is which, because
+ * an unexplained gap reads as a bug.
+ */
 const statCards = computed(() => {
   const stats = data.value?.stats
   if (!stats) return []
@@ -42,23 +51,23 @@ const statCards = computed(() => {
       caption: `Across ${stats.accountCount} connected account${stats.accountCount === 1 ? '' : 's'}`,
     },
     {
-      label: 'Revenue this month',
+      label: 'Cash received this month',
       value: stats.revenue,
       delta: stats.revenueDelta,
       up: stats.revenueUp,
       good: stats.revenueUp,
       icon: Landmark,
-      caption: `vs ${stats.revenueLastMonth} last month`,
+      caption: `Money in · vs ${stats.revenueLastMonth} last month`,
     },
     {
-      label: 'Expenses this month',
+      label: 'Cash spent this month',
       value: stats.expenses,
       delta: stats.expensesDelta,
       up: stats.expensesUp,
       // Rising expenses move up but are not good news.
       good: !stats.expensesUp,
       icon: CreditCard,
-      caption: 'Compared with last month',
+      caption: 'Money out of your accounts',
     },
     {
       label: 'Outstanding invoices',
@@ -68,22 +77,43 @@ const statCards = computed(() => {
     },
   ]
 })
+
+const showExport = ref(false)
+
+// The dashboard's own figures are single values, not rows — the cash flow
+// behind the chart is the part of this page that is actually a table.
+const EXPORT_COLUMNS = [
+  { key: 'monthStart', label: 'Month starting' },
+  { key: 'label', label: 'Month' },
+  { key: 'inflowAmount', label: 'Money in' },
+  { key: 'outflowAmount', label: 'Money out' },
+]
 </script>
 
 <template>
   <div>
     <PageHeader
       :title="`Welcome back, ${firstName}`"
-      :subtitle="today"
+      :subtitle="`${today} · cash view — see Reports for revenue invoiced and costs incurred`"
     >
       <button
         type="button"
         class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink shadow-sm transition hover:bg-slate-50"
+        @click="showExport = true"
       >
         <Download class="size-4 text-slate-400" />
         Export report
       </button>
     </PageHeader>
+
+    <ExportModal
+      v-model:open="showExport"
+      title="Export cash flow"
+      subtitle="Money in and out per month, as shown on the chart below."
+      filename="cash-flow"
+      :columns="EXPORT_COLUMNS"
+      :rows="data?.cashFlow ?? []"
+    />
 
     <AsyncState
       class="mt-7 block"

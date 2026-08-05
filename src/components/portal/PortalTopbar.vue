@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Bell, ChevronDown, LogOut, Menu, Plus, Search, Settings } from 'lucide-vue-next'
+import { Bell, ChevronDown, LogOut, Menu, Settings } from 'lucide-vue-next'
+import NotificationPanel from './NotificationPanel.vue'
+import { useNotifications } from '../../composables/useNotifications'
 
 const props = defineProps({
   email: { type: String, default: '' },
@@ -9,6 +11,11 @@ const emit = defineEmits(['toggle-sidebar', 'sign-out'])
 
 const menuOpen = ref(false)
 const menuRoot = ref(null)
+
+const bellOpen = ref(false)
+const bellRoot = ref(null)
+
+const { unreadCount, refresh, ensureLoaded } = useNotifications()
 
 // Derive a display name and initials from the email until we store profiles.
 const handle = computed(() => props.email.split('@')[0] || 'there')
@@ -30,10 +37,34 @@ const initials = computed(
 
 function onDocumentClick(event) {
   if (menuRoot.value && !menuRoot.value.contains(event.target)) menuOpen.value = false
+  if (bellRoot.value && !bellRoot.value.contains(event.target)) bellOpen.value = false
 }
 
-onMounted(() => document.addEventListener('click', onDocumentClick))
-onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
+function onEscape(event) {
+  if (event.key !== 'Escape') return
+  menuOpen.value = false
+  bellOpen.value = false
+}
+
+/** Opening the bell refetches — the feed is derived, so it goes stale quietly. */
+function toggleBell() {
+  bellOpen.value = !bellOpen.value
+  menuOpen.value = false
+  if (bellOpen.value) refresh()
+}
+
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick)
+  document.addEventListener('keydown', onEscape)
+  // The badge has to be right before anyone clicks it, so the first fetch does
+  // not wait for the panel to open.
+  ensureLoaded()
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick)
+  document.removeEventListener('keydown', onEscape)
+})
 </script>
 
 <template>
@@ -49,33 +80,29 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
       <Menu class="size-5" />
     </button>
 
-    <div class="relative hidden max-w-sm flex-1 sm:block">
-      <Search class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-400" />
-      <input
-        type="search"
-        placeholder="Search invoices, contacts, entries…"
-        aria-label="Search"
-        class="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pr-4 pl-10 text-sm text-ink transition placeholder:text-slate-400 focus:border-brand-500 focus:bg-white focus:ring-4 focus:ring-brand-100 focus:outline-none"
-      />
-    </div>
-
     <div class="ml-auto flex items-center gap-2">
-      <button
-        type="button"
-        class="hidden items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-600/20 transition hover:bg-brand-700 active:scale-[0.98] sm:inline-flex"
-      >
-        <Plus class="size-4" />
-        New invoice
-      </button>
+      <div ref="bellRoot" class="relative">
+        <button
+          type="button"
+          class="relative grid size-10 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-ink"
+          :class="bellOpen ? 'bg-slate-100 text-ink' : ''"
+          :aria-label="
+            unreadCount ? `Notifications, ${unreadCount} unread` : 'Notifications'
+          "
+          :aria-expanded="bellOpen"
+          @click="toggleBell"
+        >
+          <Bell class="size-5" />
+          <span
+            v-if="unreadCount"
+            class="absolute top-1.5 right-1.5 grid min-w-4.5 place-items-center rounded-full bg-brand-600 px-1 text-[10px] leading-4.5 font-semibold text-white ring-2 ring-white"
+          >
+            {{ unreadCount > 9 ? '9+' : unreadCount }}
+          </span>
+        </button>
 
-      <button
-        type="button"
-        class="relative grid size-10 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-ink"
-        aria-label="Notifications"
-      >
-        <Bell class="size-5" />
-        <span class="absolute top-2 right-2.5 size-2 rounded-full bg-brand-600 ring-2 ring-white"></span>
-      </button>
+        <NotificationPanel v-model:open="bellOpen" />
+      </div>
 
       <div ref="menuRoot" class="relative">
         <button
@@ -83,7 +110,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
           class="flex items-center gap-2.5 rounded-xl py-1.5 pr-2 pl-1.5 transition hover:bg-slate-100"
           :aria-expanded="menuOpen"
           aria-haspopup="menu"
-          @click="menuOpen = !menuOpen"
+          @click="menuOpen = !menuOpen; bellOpen = false"
         >
           <span
             class="grid size-9 place-items-center rounded-lg bg-linear-to-br from-brand-500 to-brand-700 text-xs font-semibold text-white"

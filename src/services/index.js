@@ -4,6 +4,7 @@
  * convenience.
  */
 export * from './organizationService'
+export * from './accountService'
 export * from './dashboardService'
 export * from './invoiceService'
 export * from './expenseService'

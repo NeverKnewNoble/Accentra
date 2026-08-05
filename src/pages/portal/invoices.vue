@@ -10,16 +10,22 @@ import {
   Scale,
 } from 'lucide-vue-next'
 import StatCard from '../../components/dashboard/StatCard.vue'
+import ExportModal from '../../components/modals/ExportModal.vue'
+import InvoiceActionsModal from '../../components/modals/InvoiceActionsModal.vue'
+import NewInvoiceModal from '../../components/modals/NewInvoiceModal.vue'
 import AsyncState from '../../components/portal/AsyncState.vue'
 import FilterTabs from '../../components/portal/FilterTabs.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
 import SearchInput from '../../components/portal/SearchInput.vue'
 import StatusPill from '../../components/portal/StatusPill.vue'
 import TableSkeleton from '../../components/skeletons/TableSkeleton.vue'
+import { useOrganization } from '../../composables/useOrganization'
 import { usePortalData } from '../../composables/usePortalData'
 import { getInvoiceStats, listInvoices } from '../../services/invoiceService'
 import { initials } from '../../utils/format'
 import { invoiceFilters } from '../../utils/samplesData'
+
+const { ensureOrganization } = useOrganization()
 
 const activeFilter = ref('All')
 const query = ref('')
@@ -94,6 +100,48 @@ const statCards = computed(() => {
 function resetPage() {
   page.value = 0
 }
+
+const showNewInvoice = ref(false)
+const showExport = ref(false)
+const actionsFor = ref(null)
+const showActions = ref(false)
+
+const EXPORT_COLUMNS = [
+  { key: 'number', label: 'Invoice' },
+  { key: 'client', label: 'Client' },
+  { key: 'email', label: 'Email' },
+  { key: 'issued', label: 'Issued' },
+  { key: 'due', label: 'Due' },
+  { key: 'status', label: 'Status' },
+  { key: 'amount', label: 'Amount' },
+  { key: 'balanceDue', label: 'Balance due' },
+]
+
+/**
+ * Export the whole filtered set, not just the page on screen — someone
+ * exporting on page three means the invoices matching their filter, not
+ * invoices 41 to 60.
+ */
+async function fetchExportRows() {
+  const orgId = await ensureOrganization()
+  const { rows: all } = await listInvoices(orgId, {
+    filter: activeFilter.value,
+    search: query.value,
+    page: 0,
+    pageSize: 1000,
+  })
+  return all
+}
+
+function openActions(invoice) {
+  actionsFor.value = invoice
+  showActions.value = true
+}
+
+function onInvoiceChanged() {
+  refreshTable()
+  refreshStats()
+}
 </script>
 
 <template>
@@ -102,6 +150,7 @@ function resetPage() {
       <button
         type="button"
         class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink shadow-sm transition hover:bg-slate-50"
+        @click="showExport = true"
       >
         <Download class="size-4 text-slate-400" />
         Export
@@ -109,11 +158,29 @@ function resetPage() {
       <button
         type="button"
         class="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-600/20 transition hover:bg-brand-700 active:scale-[0.98]"
+        @click="showNewInvoice = true"
       >
         <Plus class="size-4" />
         New invoice
       </button>
     </PageHeader>
+
+    <NewInvoiceModal v-model:open="showNewInvoice" @created="onInvoiceChanged" />
+
+    <InvoiceActionsModal
+      v-model:open="showActions"
+      :invoice="actionsFor"
+      @changed="onInvoiceChanged"
+    />
+
+    <ExportModal
+      v-model:open="showExport"
+      title="Export invoices"
+      :subtitle="`Every invoice matching the ${activeFilter.toLowerCase()} filter.`"
+      filename="invoices"
+      :columns="EXPORT_COLUMNS"
+      :fetch-rows="fetchExportRows"
+    />
 
     <AsyncState
       class="mt-7 block"
@@ -184,6 +251,7 @@ function resetPage() {
                     type="button"
                     class="grid size-8 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-ink"
                     :aria-label="`Actions for ${invoice.number}`"
+                    @click="openActions(invoice)"
                   >
                     <Ellipsis class="size-4" />
                   </button>

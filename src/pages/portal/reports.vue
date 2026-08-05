@@ -11,6 +11,8 @@ import {
   Wallet,
 } from 'lucide-vue-next'
 import StatCard from '../../components/dashboard/StatCard.vue'
+import ExportModal from '../../components/modals/ExportModal.vue'
+import GenerateReportModal from '../../components/modals/GenerateReportModal.vue'
 import AsyncState from '../../components/portal/AsyncState.vue'
 import FilterTabs from '../../components/portal/FilterTabs.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
@@ -28,6 +30,13 @@ const { data, loading, error, refresh } = usePortalData(
   { watchSources: [period] },
 )
 
+/**
+ * These are **accrual** figures: `profit_and_loss` reads revenue from invoices
+ * by issue date and costs from approved expenses by the date they were spent —
+ * not from `transactions`. The dashboard is the cash view of the same business,
+ * so the two will differ whenever an invoice is unpaid or a card has not
+ * settled. That gap is the point of the two pages, not a discrepancy.
+ */
 const kpiCards = computed(() => {
   const kpis = data.value?.kpis
   if (!kpis) return []
@@ -39,7 +48,7 @@ const kpiCards = computed(() => {
       up: kpis.revenueUp,
       good: kpis.revenueUp,
       icon: Landmark,
-      caption: period.value,
+      caption: `Invoiced in ${period.value.toLowerCase()}, paid or not`,
     },
     {
       label: 'Net margin',
@@ -57,7 +66,7 @@ const kpiCards = computed(() => {
       up: kpis.expensesUp,
       good: !kpis.expensesUp,
       icon: CreditCard,
-      caption: 'Approved and reimbursed claims',
+      caption: 'Costs incurred, not cash paid',
     },
     {
       label: 'Net profit',
@@ -72,20 +81,56 @@ const kpiCards = computed(() => {
 })
 
 const STREAM_TONES = ['bg-brand-700', 'bg-brand-500', 'bg-brand-300', 'bg-brand-200']
+
+const showGenerate = ref(false)
+const showExport = ref(false)
+const activeReport = ref({ kind: 'profit-and-loss', title: 'Profit and loss' })
+
+const PACK_COLUMNS = [
+  { key: 'line', label: 'Line item' },
+  { key: 'current', label: 'Current' },
+  { key: 'prior', label: 'Prior year' },
+  { key: 'change', label: 'Change' },
+]
+
+function generate(report) {
+  activeReport.value = report
+  showGenerate.value = true
+}
 </script>
 
 <template>
   <div>
-    <PageHeader title="Reports" subtitle="Statements that recalculate the moment a transaction lands.">
+    <PageHeader
+      title="Reports"
+      subtitle="Accrual view — revenue when invoiced, costs when incurred. The dashboard shows the cash side."
+    >
       <FilterTabs v-model="period" :options="reportPeriods" />
       <button
         type="button"
         class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink shadow-sm transition hover:bg-slate-50"
+        @click="showExport = true"
       >
         <Download class="size-4 text-slate-400" />
         Download pack
       </button>
     </PageHeader>
+
+    <GenerateReportModal
+      v-model:open="showGenerate"
+      :kind="activeReport.kind"
+      :title="activeReport.title"
+      :period="period"
+    />
+
+    <ExportModal
+      v-model:open="showExport"
+      title="Download pack"
+      :subtitle="`The profit and loss statement for ${period.toLowerCase()}, with its prior-year column.`"
+      filename="profit-and-loss"
+      :columns="PACK_COLUMNS"
+      :rows="data?.profitAndLoss ?? []"
+    />
 
     <AsyncState
       class="mt-7 block"
@@ -112,6 +157,7 @@ const STREAM_TONES = ['bg-brand-700', 'bg-brand-500', 'bg-brand-300', 'bg-brand-
             <button
               type="button"
               class="text-sm font-medium text-brand-600 underline-offset-4 hover:underline"
+              @click="generate({ kind: 'profit-and-loss', title: 'Profit and loss' })"
             >
               Full statement
             </button>
@@ -243,6 +289,7 @@ const STREAM_TONES = ['bg-brand-700', 'bg-brand-500', 'bg-brand-300', 'bg-brand-
             <button
               type="button"
               class="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 transition group-hover:gap-2.5"
+              @click="generate(report)"
             >
               Generate
               <ArrowRight class="size-4" />

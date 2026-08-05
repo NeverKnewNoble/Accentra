@@ -10,6 +10,10 @@ import {
   Users,
 } from 'lucide-vue-next'
 import StatCard from '../../components/dashboard/StatCard.vue'
+import AddEmployeeModal from '../../components/modals/AddEmployeeModal.vue'
+import ConfirmDialog from '../../components/modals/ConfirmDialog.vue'
+import ManageEmployeesModal from '../../components/modals/ManageEmployeesModal.vue'
+import RunPayrollModal from '../../components/modals/RunPayrollModal.vue'
 import AsyncState from '../../components/portal/AsyncState.vue'
 import PageHeader from '../../components/portal/PageHeader.vue'
 import StatusPill from '../../components/portal/StatusPill.vue'
@@ -23,8 +27,10 @@ const { user } = useAuth()
 
 const { data, loading, error, refresh } = usePortalData((orgId) => getPayrollPageData(orgId))
 
-const approving = ref(false)
-const approvalError = ref(null)
+const showAddEmployee = ref(false)
+const showRunPayroll = ref(false)
+const showManageTeam = ref(false)
+const showApprove = ref(false)
 
 const statCards = computed(() => {
   const stats = data.value?.stats
@@ -59,20 +65,13 @@ const statCards = computed(() => {
   ]
 })
 
-async function onApprove() {
-  const runId = data.value?.run?.id
-  if (!runId) return
-
-  approving.value = true
-  approvalError.value = null
-  try {
-    await approvePayrollRun(runId, user.value.id)
-    await refresh()
-  } catch (caught) {
-    approvalError.value = caught
-  } finally {
-    approving.value = false
-  }
+/**
+ * Approval is the point of no return in this flow — it stamps the run as
+ * submitted to the bank — so it goes through a confirmation rather than firing
+ * on the first click.
+ */
+function approveRun() {
+  return approvePayrollRun(data.value.run.id, user.value.id)
 }
 </script>
 
@@ -82,6 +81,7 @@ async function onApprove() {
       <button
         type="button"
         class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink shadow-sm transition hover:bg-slate-50"
+        @click="showAddEmployee = true"
       >
         <Plus class="size-4 text-slate-400" />
         Add employee
@@ -89,11 +89,26 @@ async function onApprove() {
       <button
         type="button"
         class="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-600/20 transition hover:bg-brand-700 active:scale-[0.98]"
+        @click="showRunPayroll = true"
       >
         <Play class="size-4" />
         Run payroll
       </button>
     </PageHeader>
+
+    <AddEmployeeModal v-model:open="showAddEmployee" @saved="refresh" />
+    <RunPayrollModal v-model:open="showRunPayroll" @created="refresh" />
+    <ManageEmployeesModal v-model:open="showManageTeam" @changed="refresh" />
+
+    <ConfirmDialog
+      v-if="data?.run"
+      v-model:open="showApprove"
+      title="Approve and submit this run?"
+      :message="`${data.run.period} pays ${data.run.employees} people ${data.run.net} on ${data.run.payDate}. Approving marks it submitted to the bank.`"
+      confirm-label="Approve and submit"
+      :action="approveRun"
+      @confirmed="refresh"
+    />
 
     <AsyncState
       class="mt-7 block"
@@ -161,17 +176,12 @@ async function onApprove() {
               </li>
             </ol>
 
-            <p v-if="approvalError" class="mt-4 text-sm text-red-600" role="alert">
-              {{ approvalError.message }}
-            </p>
-
             <button
               type="button"
-              :disabled="approving"
-              class="mt-6 w-full rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
-              @click="onApprove"
+              class="mt-6 w-full rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
+              @click="showApprove = true"
             >
-              {{ approving ? 'Submitting…' : 'Approve and submit' }}
+              Approve and submit
             </button>
           </div>
         </div>
@@ -190,6 +200,7 @@ async function onApprove() {
             <button
               type="button"
               class="text-sm font-medium text-brand-600 underline-offset-4 hover:underline"
+              @click="showManageTeam = true"
             >
               Manage
             </button>

@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabaseClient'
-import { formatCurrency, percentDelta } from '../utils/format'
+import { formatCurrency, formatDate, formatStatus, percentDelta } from '../utils/format'
 import { unwrap } from './helpers'
 
 /** Queries behind /portal/reports. */
@@ -138,6 +138,204 @@ export async function getReportKpis(organizationId, periodLabel) {
     profitUp: profitDelta.up,
     netMargin: `${margin.toFixed(1)}% net margin`,
   }
+}
+
+/* --------------------------------------------------- generated statements */
+
+/**
+ * Why a report in the library cannot be produced from this schema.
+ *
+ * Saying so is the point. A balance sheet built without a chart of accounts
+ * would be a guess dressed as a filing, and the person reading it has no way
+ * to tell.
+ */
+const UNAVAILABLE = {
+  'balance-sheet':
+    'A balance sheet needs a chart of accounts and double-entry postings. This schema tracks transactions, invoices and expenses, but not assets, liabilities or equity.',
+  'trial-balance':
+    'A trial balance lists debits and credits per ledger account. There is no general ledger in this schema — transactions post against bank accounts, not nominal codes.',
+  'vat-return':
+    'Output VAT is available from invoice tax totals, but expenses carry no VAT column, so input VAT cannot be computed. A return with only one side of it would be wrong to file.',
+}
+
+export function reportUnavailableReason(kind) {
+  return UNAVAILABLE[kind] ?? null
+}
+
+/** Profit and loss for an explicit range, as export-ready rows. */
+async function buildProfitAndLoss(organizationId, start, end) {
+  const rows = await fetchProfitAndLoss(organizationId, start, end)
+
+  return {
+    columns: [
+      { key: 'line', label: 'Line item' },
+      { key: 'amount', label: 'Amount' },
+    ],
+    rows: rows.map((row) => ({
+      line: row.line_item,
+      amount: formatCurrency(row.amount, { decimals: true }),
+      emphasis: row.emphasis,
+    })),
+  }
+}
+
+/**
+ * Money in and out per month across the range.
+ *
+ * Aggregated here rather than through `cash_flow_by_month`, which counts back
+ * a number of months from today and so cannot answer a historic range.
+ */
+async function buildCashFlow(organizationId, start, end) {
+  const rows =
+    unwrap(
+      await supabase
+        .from('transactions')
+        .select('occurred_on, amount')
+        .eq('organization_id', organizationId)
+        .neq('status', 'failed')
+        .gte('occurred_on', start)
+        .lte('occurred_on', end)
+        .order('occurred_on'),
+      'cash flow statement',
+    ) ?? []
+
+  const byMonth = new Map()
+
+  for (const row of rows) {
+    const key = String(row.occurred_on).slice(0, 7)
+    const bucket = byMonth.get(key) ?? { inflow: 0, outflow: 0 }
+    const amount = Number(row.amount)
+    if (amount > 0) bucket.inflow += amount
+    else bucket.outflow += Math.abs(amount)
+    byMonth.set(key, bucket)
+  }
+
+  return {
+    columns: [
+      { key: 'month', label: 'Month' },
+      { key: 'inflow', label: 'Money in' },
+      { key: 'outflow', label: 'Money out' },
+      { key: 'net', label: 'Net movement' },
+    ],
+    rows: [...byMonth.entries()].map(([month, bucket]) => ({
+      month: new Date(`${month}-01`).toLocaleDateString('en-GB', {
+        month: 'long',
+        year: 'numeric',
+      }),
+      inflow: formatCurrency(bucket.inflow, { decimals: true }),
+      outflow: formatCurrency(bucket.outflow, { decimals: true }),
+      net: formatCurrency(bucket.inflow - bucket.outflow, { decimals: true }),
+    })),
+  }
+}
+
+const AGEING_BUCKETS = [
+  { label: 'Not yet due', max: 0 },
+  { label: '1–30 days', max: 30 },
+  { label: '31–60 days', max: 60 },
+  { label: '61–90 days', max: 90 },
+  { label: 'Over 90 days', max: Infinity },
+]
+
+function ageingBucket(dueDate, asAt) {
+  const daysLate = Math.floor((asAt - new Date(dueDate)) / 86_400_000)
+  if (daysLate <= 0) return AGEING_BUCKETS[0].label
+  return AGEING_BUCKETS.find((bucket) => daysLate <= bucket.max).label
+}
+
+/** Unpaid invoices, bucketed by how far past their due date they are. */
+async function buildAgedReceivables(organizationId, _start, end) {
+  const rows =
+    unwrap(
+      await supabase
+        .from('invoices')
+        .select('number, due_date, balance_due, status, clients (name)')
+        .eq('organization_id', organizationId)
+        .in('status', ['sent', 'overdue'])
+        .gt('balance_due', 0)
+        .order('due_date'),
+      'aged receivables',
+    ) ?? []
+
+  const asAt = new Date(end)
+
+  return {
+    columns: [
+      { key: 'client', label: 'Client' },
+      { key: 'number', label: 'Invoice' },
+      { key: 'due', label: 'Due' },
+      { key: 'bucket', label: 'Age' },
+      { key: 'balance', label: 'Balance due' },
+    ],
+    rows: rows.map((row) => ({
+      client: row.clients?.name ?? 'Unknown client',
+      number: row.number,
+      due: formatDate(row.due_date),
+      bucket: ageingBucket(row.due_date, asAt),
+      balance: formatCurrency(row.balance_due, { decimals: true }),
+    })),
+  }
+}
+
+/** Every pay run whose pay date falls inside the range. */
+async function buildPayrollSummary(organizationId, start, end) {
+  const rows =
+    unwrap(
+      await supabase
+        .from('payroll_runs')
+        .select(
+          'period_start, period_end, pay_date, status, gross_total, deductions_total, net_total, employee_count',
+        )
+        .eq('organization_id', organizationId)
+        .gte('pay_date', start)
+        .lte('pay_date', end)
+        .order('pay_date', { ascending: false }),
+      'payroll summary',
+    ) ?? []
+
+  return {
+    columns: [
+      { key: 'period', label: 'Period' },
+      { key: 'payDate', label: 'Pay date' },
+      { key: 'status', label: 'Status' },
+      { key: 'employees', label: 'People' },
+      { key: 'gross', label: 'Gross' },
+      { key: 'deductions', label: 'Deductions' },
+      { key: 'net', label: 'Net paid' },
+    ],
+    rows: rows.map((row) => ({
+      period: `${formatDate(row.period_start)} – ${formatDate(row.period_end)}`,
+      payDate: formatDate(row.pay_date),
+      status: formatStatus(row.status),
+      employees: row.employee_count,
+      gross: formatCurrency(row.gross_total, { decimals: true }),
+      deductions: formatCurrency(row.deductions_total, { decimals: true }),
+      net: formatCurrency(row.net_total, { decimals: true }),
+    })),
+  }
+}
+
+const BUILDERS = {
+  'profit-and-loss': buildProfitAndLoss,
+  'cash-flow': buildCashFlow,
+  'aged-receivables': buildAgedReceivables,
+  'payroll-summary': buildPayrollSummary,
+}
+
+/**
+ * Build one report over an explicit date range.
+ *
+ * Returns `{ columns, rows }` — the same shape the export helper takes, so the
+ * dialog renders and downloads the identical figures.
+ */
+export async function generateReport(organizationId, kind, { start, end }) {
+  const reason = reportUnavailableReason(kind)
+  if (reason) throw new Error(reason)
+
+  const build = BUILDERS[kind]
+  if (!build) throw new Error(`No report is defined for "${kind}".`)
+
+  return build(organizationId, start, end)
 }
 
 /** Everything the reports page needs for one period, in parallel. */

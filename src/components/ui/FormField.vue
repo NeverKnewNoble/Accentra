@@ -9,9 +9,16 @@ const props = defineProps({
   required: { type: Boolean, default: false },
   error: { type: String, default: '' },
   hint: { type: String, default: '' },
+  // Passed straight through for number and date inputs.
+  min: { type: [String, Number], default: undefined },
+  max: { type: [String, Number], default: undefined },
+  step: { type: [String, Number], default: undefined },
+  disabled: { type: Boolean, default: false },
 })
 
-const model = defineModel({ type: String, default: '' })
+// Number and date inputs bind a Number or an empty string, so the model cannot
+// be String-only.
+const model = defineModel({ type: [String, Number], default: '' })
 
 const id = useId()
 const hintId = `${id}-hint`
@@ -40,9 +47,13 @@ const resolvedType = computed(() =>
         :placeholder="placeholder"
         :autocomplete="autocomplete"
         :required="required"
+        :disabled="disabled"
+        :min="min"
+        :max="max"
+        :step="step"
         :aria-invalid="error ? 'true' : undefined"
         :aria-describedby="error || hint ? hintId : undefined"
-        class="w-full rounded-xl border bg-white px-4 py-3 text-[15px] text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-brand-500 focus:ring-4 focus:ring-brand-100 focus:outline-none"
+        class="w-full rounded-xl border bg-white px-4 py-3 text-[15px] text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-brand-500 focus:ring-4 focus:ring-brand-100 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
         :class="[
           error ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : 'border-slate-200',
           isPassword ? 'pr-12' : '',

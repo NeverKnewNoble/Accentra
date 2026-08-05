@@ -128,7 +128,17 @@ export async function getInvoice(invoiceId) {
  * `invoice_items_recalc` trigger computes subtotal, tax and total from the
  * lines, so there is exactly one place that arithmetic can be wrong.
  */
-export async function createInvoice(organizationId, { clientId, number, issueDate, dueDate, notes, lines = [] }) {
+export async function createInvoice(organizationId, {
+  clientId,
+  number,
+  issueDate,
+  dueDate,
+  notes,
+  currency = 'GHS',
+  status = 'draft',
+  createdBy = null,
+  lines = [],
+}) {
   const invoice = unwrap(
     await supabase
       .from('invoices')
@@ -138,8 +148,13 @@ export async function createInvoice(organizationId, { clientId, number, issueDat
         number,
         issue_date: issueDate,
         due_date: dueDate,
-        notes,
-        status: 'draft',
+        notes: notes || null,
+        currency,
+        status,
+        // Raising an invoice straight to "sent" still has to stamp the date the
+        // overdue job (§6.5) and the stats RPC read from.
+        sent_at: status === 'sent' ? new Date().toISOString() : null,
+        created_by: createdBy,
       })
       .select()
       .single(),
@@ -155,6 +170,7 @@ export async function createInvoice(organizationId, { clientId, number, issueDat
           quantity: line.quantity ?? 1,
           unit_price: line.unitPrice ?? 0,
           tax_rate: line.taxRate ?? 15, // Ghana standard VAT
+          stream: line.stream || null,
           position: index,
         })),
       ),
@@ -163,6 +179,32 @@ export async function createInvoice(organizationId, { clientId, number, issueDat
   }
 
   return invoice
+}
+
+/**
+ * Append lines to an existing invoice. Totals are left alone here too — the
+ * `invoice_items_recalc` trigger fires on the insert and updates them.
+ */
+export async function addInvoiceItems(invoiceId, lines, startPosition = 0) {
+  if (!lines.length) return []
+
+  return unwrap(
+    await supabase
+      .from('invoice_items')
+      .insert(
+        lines.map((line, index) => ({
+          invoice_id: invoiceId,
+          description: line.description,
+          quantity: line.quantity ?? 1,
+          unit_price: line.unitPrice ?? 0,
+          tax_rate: line.taxRate ?? 15,
+          stream: line.stream || null,
+          position: startPosition + index,
+        })),
+      )
+      .select(),
+    'invoice line creation',
+  )
 }
 
 export async function updateInvoiceStatus(invoiceId, status) {
@@ -231,6 +273,24 @@ export async function listClients(organizationId) {
   return rows
 }
 
+export async function updateClient(clientId, client) {
+  return unwrap(
+    await supabase
+      .from('clients')
+      .update({
+        name: client.name,
+        email: client.email || null,
+        phone: client.phone || null,
+        address: client.address || null,
+        payment_terms: client.paymentTerms ?? 14,
+      })
+      .eq('id', clientId)
+      .select()
+      .single(),
+    'client update',
+  )
+}
+
 export async function createClient(organizationId, client) {
   return unwrap(
     await supabase
@@ -238,9 +298,9 @@ export async function createClient(organizationId, client) {
       .insert({
         organization_id: organizationId,
         name: client.name,
-        email: client.email,
-        phone: client.phone,
-        address: client.address,
+        email: client.email || null,
+        phone: client.phone || null,
+        address: client.address || null,
         payment_terms: client.paymentTerms ?? 14,
       })
       .select()
